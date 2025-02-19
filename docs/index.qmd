@@ -1,0 +1,152 @@
+---
+title: "Getting started with targets"
+author: "Echelle Burns"
+format: 
+  html:
+    toc: true
+    embed-resources: true
+---
+
+This workshop will provide you with an introduction to develop and convert existing R repositories to the `targets` workflow. 
+
+# Prerequisites
+
+We will be using the `targets` package. 
+
+```{r}
+#| eval: false
+install.packages("targets")
+```
+
+For my own sanity, we will also be using `tidyverse`
+
+```{r}
+#| eval: false
+install.packages("tidyverse")
+```
+
+
+# Why use `targets`
+
+Many projects are organized in a set of R scripts or R markdowns that complete one or several tasks that eventually get you to your end product. However, these scripts can often be revised and updated based on feedback from advisers, peer-reviewers, or bug fixes. Git already helps us out by tracking which version of the scripts are most up to date, but it doesn't automatically re-run and update the outputs of scripts further down in our workflow. 
+
+This could result in out-dated figures, model outputs, etc. which can become a true nightmare for your average researcher.
+
+Some people choose to manage this nightmare via `makefiles`, which tell R which files are dependencies for others. However, there is a more streamlined (and some may argue, more intuitive) way to make sure that all scripts are re-run if a precursor is edited. That brings us to `targets`. 
+
+`targets` can become pretty overwhelming, as it *does* likely require a complete overhaul of your current repo organization. That being said, I'm going to go step-by-step and show you how I've successfully converted a repo to `targets` in the past. 
+
+# Reviewing your old scripts
+
+Your repo probably has a folder schema like this: 
+
++ `scripts`
+    - `01-data_setup.R`
+    - `02-run_model.R`
+    - ...
++ `outputs`
+    - ... 
++ `data`
+    - ... 
+  
+And your previous scripts might look something like this: 
+
+```{r}
+#| message: false
+#| warning: false
+# Load libraries
+library(tidyverse)
+
+# Create variables - a mean and standard deviation that are known
+mean_x <- 17
+sd_x <- 2
+
+# Using the above, generate a random sample of a normal distributions
+# The goal of our paper is to see how sample size might affect the distributions
+
+# Set the seed first, so that we can have reproducible results
+set.seed(1234)
+random_10 <- rnorm(n = 10, mean = mean_x, sd = sd_x)
+set.seed(1234) # we need to set this every time we run a new random thing
+random_1000 <- rnorm(n = 1000, mean = mean_x, sd = sd_x)
+
+# Let's combine the datasets
+random_all <- data.frame("n" = 10, 
+                     "value" = random_10) %>%
+  rbind(data.frame("n" = 1000, 
+                   value = random_1000))
+
+# Let's see how close the means and standard deviations are to our original data
+
+## First get the means and sds of interest
+random_10_mean <- mean(random_10)
+random_10_sd <- sd(random_10)
+
+random_1000_mean <- mean(random_1000)
+random_1000_sd <- sd(random_1000)
+
+## Now calculate percent difference 
+### First add everything to a dataframe
+perc_difference_df <- data.frame("n" = c(10, 1000), 
+                              "original_mean" = mean_x,
+                              "original_sd" = sd_x, 
+                              "new_mean" = c(random_10_mean, random_1000_mean), 
+                              "new_sd" = c(random_10_sd, random_1000_sd))
+
+### Now calculate percent differences
+perc_difference_df <- perc_difference_df %>% 
+  mutate(perc_difference_mean = (new_mean-original_mean)/original_mean*100, 
+         perc_difference_sd = (new_sd-original_sd)/original_sd*100)
+  
+### Now only keep what we care about
+perc_difference <- perc_difference_df %>% 
+  select(n, perc_difference_mean, perc_difference_sd)
+
+# Now, we can make a plot
+ggplot() + 
+  geom_histogram(data = random_all, 
+                 mapping = aes(x = value, y = ..count../sum(..count..)), 
+                 fill = "dodgerblue4", alpha = 0.5) + 
+  geom_vline(data = perc_difference_df, 
+             mapping = aes(xintercept = new_mean, linetype = "Sample mean")) + 
+  geom_vline(data = perc_difference_df, 
+             mapping = aes(xintercept = original_mean, linetype = "Known mean")) +
+  scale_linetype_manual(values = c("Sample mean" = "solid", 
+                                   "Known mean" = "dashed")) + 
+  facet_wrap(~n, scales = "free") + 
+  scale_y_continuous(labels = scales::percent) + 
+  labs(x = "Value", 
+       y = "Percent of points", 
+       linetype = NULL, 
+       title = "Sample means by sample size") + 
+  theme_classic() + 
+  theme(legend.position = "bottom")
+```
+
+Phew that's a lot! 
+
+In this example, if we change something (like the known mean), and re-run the code, the resulting data set and figure will run. But what if we rely on `perc_difference` for something later in our analysis? Or what if we decide to set up the figure code chunk in its own R script? Then we'd really have a problem if we changed the known mean. We would have to keep track of which scripts (and their outputs) would need to be re-run every time we make an upstream change.
+
+# Converting to `targets`
+
+To convert our above script into a `targets` workflow, we need to do a few things. 
+
+1. Convert our existing script into bite size functions
+2. Call to these functions in a single, `_targets.R` executable file
+
+Step #1, in particular, really forces us to think about which data are necessary to run (and reproduce) our analyses. If we don't need them for our analyses, maybe it's not worth keeping in our repo. 
+
+Once we're done, our new schema will look different. Below is the schema I like to use, because it makes the most sense to me, when converting a project into the `targets` workflow
+
++ `_targets.R`
++ `scripts`
+  + `target-functions`: this houses all the functions I will need for `_targets.R`; I like to have each function as it's own R script
+    - `get_random_sample.R`
+    - `collate_df.R`
+    - `calculate_perc_diff.R`
+    - `create_histogram.R`
+  + `deprecated`: this houses all the previous scripts that I've converted to functions (can be deleted)
+  + `exploratory-analyses`: this houses all scripts that I've used to check the data that I think can be important later, but aren't currently used in the workflow
+  
+    
+
