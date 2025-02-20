@@ -113,7 +113,7 @@ ggplot() +
              mapping = aes(xintercept = original_mean, linetype = "Known mean")) +
   scale_linetype_manual(values = c("Sample mean" = "solid", 
                                    "Known mean" = "dashed")) + 
-  facet_wrap(~n, scales = "free") + 
+  facet_wrap(~n, scales = "free_y") + 
   scale_y_continuous(labels = scales::percent) + 
   labs(x = "Value", 
        y = "Percent of points", 
