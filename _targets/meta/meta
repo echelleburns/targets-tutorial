@@ -1,0 +1,12 @@
+name|type|data|command|depend|seed|path|time|size|bytes|format|repository|iteration|parent|children|seconds|warnings|error
+known_sd|stem|c43edc819883e0d6|d96997e41f05849f|2c530c1562a7fbd1|-207155497||t20144.9859698716s|s50b|50|rds|local|vector|||0||
+sample_sizes|stem|8d022e0a21094d0b|37d8c12c86e59358|2c530c1562a7fbd1|-1345171252||t20145.0042716683s|s59b|59|rds|local|vector|||0.289||
+known_mean|stem|7107cf79bb9ec5b8|b22ee1163a5c968a|2c530c1562a7fbd1|2059198382||t20145.0058776392s|s51b|51|rds|local|vector|||0.282||
+random_all|stem|e3f5b45ca0ef38ac|a071223ad55b25f4|55cf3dcaa03c7441|-1612978333||t20145.0058778529s|s82375b|82375|rds|local|vector|||0.01||
+combined_data_summaries|stem|330e0474be70d8c4|8388504232b06cf9|9bf035dcbf8b6324|1464510724||t20145.0058779449s|s249b|249|rds|local|vector|||0.005||
+percent_differences|stem|0d51102ea4fc7c09|ebe75d15fa01f378|be4efd2b989fc9d8|-194121128||t20145.0058779711s|s328b|328|rds|local|vector|||0.001||
+comparison_figure|stem|275a7bee5b58a317|6c74b775153e115f|d37b34c3c13b9a6d|-1444612697||t20145.0058791242s|s613725b|613725|rds|local|vector|||0.025||
+combine_known_and_sampled|function|96435098512e2f5d
+calculate_percent_difference|function|dd35622cb55f2bf3
+create_random_samples|function|04509ca203324ca4
+create_comparison_figure|function|9305a5c100e70420

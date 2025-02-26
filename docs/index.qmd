@@ -7,18 +7,23 @@ format:
     embed-resources: true
 ---
 
+```{r setup}
+#| include: false
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
 This workshop will provide you with an introduction to develop and convert existing R repositories to the `targets` workflow. 
 
 # Prerequisites
 
-We will be using the `targets` package. 
+We will be using the `targets` package. There is a great [user manual](https://books.ropensci.org/targets/) for this package that you can continue to refer to on your `targets` journey. 
 
 ```{r}
 #| eval: false
 install.packages("targets")
 ```
 
-For my own sanity, we will also be using `tidyverse`
+For my own sanity, we will also be using `tidyverse`.
 
 ```{r}
 #| eval: false
@@ -26,11 +31,11 @@ install.packages("tidyverse")
 ```
 
 
-# Why use `targets`
+# Why use `targets`?
 
 Many projects are organized in a set of R scripts or R markdowns that complete one or several tasks that eventually get you to your end product. However, these scripts can often be revised and updated based on feedback from advisers, peer-reviewers, or bug fixes. Git already helps us out by tracking which version of the scripts are most up to date, but it doesn't automatically re-run and update the outputs of scripts further down in our workflow. 
 
-This could result in out-dated figures, model outputs, etc. which can become a true nightmare for your average researcher.
+This could result in out-dated figures and model outputs which can become a true nightmare for any researcher.
 
 Some people choose to manage this nightmare via `makefiles`, which tell R which files are dependencies for others. However, there is a more streamlined (and some may argue, more intuitive) way to make sure that all scripts are re-run if a precursor is edited. That brings us to `targets`. 
 
@@ -58,17 +63,17 @@ And your previous scripts might look something like this:
 library(tidyverse)
 
 # Create variables - a mean and standard deviation that are known
-mean_x <- 17
-sd_x <- 2
+known_mean <- 17
+known_sd <- 2
 
 # Using the above, generate a random sample of a normal distributions
 # The goal of our paper is to see how sample size might affect the distributions
 
 # Set the seed first, so that we can have reproducible results
 set.seed(1234)
-random_10 <- rnorm(n = 10, mean = mean_x, sd = sd_x)
+random_10 <- rnorm(n = 10, mean = known_mean, sd = known_sd)
 set.seed(1234) # we need to set this every time we run a new random thing
-random_1000 <- rnorm(n = 1000, mean = mean_x, sd = sd_x)
+random_1000 <- rnorm(n = 1000, mean = known_mean, sd = known_sd)
 
 # Let's combine the datasets
 random_all <- data.frame("n" = 10, 
@@ -85,20 +90,19 @@ random_10_sd <- sd(random_10)
 random_1000_mean <- mean(random_1000)
 random_1000_sd <- sd(random_1000)
 
-## Now calculate percent difference 
-### First add everything to a dataframe
+## First add everything to a dataframe
 perc_difference_df <- data.frame("n" = c(10, 1000), 
-                              "original_mean" = mean_x,
-                              "original_sd" = sd_x, 
-                              "new_mean" = c(random_10_mean, random_1000_mean), 
-                              "new_sd" = c(random_10_sd, random_1000_sd))
+                              "known_mean" = known_mean,
+                              "known_sd" = known_sd, 
+                              "sampled_mean" = c(random_10_mean, random_1000_mean), 
+                              "sampled_sd" = c(random_10_sd, random_1000_sd))
 
-### Now calculate percent differences
+## Now calculate percent differences
 perc_difference_df <- perc_difference_df %>% 
-  mutate(perc_difference_mean = (new_mean-original_mean)/original_mean*100, 
-         perc_difference_sd = (new_sd-original_sd)/original_sd*100)
+  mutate(perc_difference_mean = (sampled_mean-known_mean)/known_mean*100, 
+         perc_difference_sd = (sampled_sd-known_sd)/known_sd*100)
   
-### Now only keep what we care about
+## Keep a small dataset with just the differences
 perc_difference <- perc_difference_df %>% 
   select(n, perc_difference_mean, perc_difference_sd)
 
@@ -108,9 +112,9 @@ ggplot() +
                  mapping = aes(x = value, y = ..count../sum(..count..)), 
                  fill = "dodgerblue4", alpha = 0.5) + 
   geom_vline(data = perc_difference_df, 
-             mapping = aes(xintercept = new_mean, linetype = "Sample mean")) + 
+             mapping = aes(xintercept = sampled_mean, linetype = "Sample mean")) + 
   geom_vline(data = perc_difference_df, 
-             mapping = aes(xintercept = original_mean, linetype = "Known mean")) +
+             mapping = aes(xintercept = known_mean, linetype = "Known mean")) +
   scale_linetype_manual(values = c("Sample mean" = "solid", 
                                    "Known mean" = "dashed")) + 
   facet_wrap(~n, scales = "free_y") + 
@@ -125,28 +129,473 @@ ggplot() +
 
 Phew that's a lot! 
 
-In this example, if we change something (like the known mean), and re-run the code, the resulting data set and figure will run. But what if we rely on `perc_difference` for something later in our analysis? Or what if we decide to set up the figure code chunk in its own R script? Then we'd really have a problem if we changed the known mean. We would have to keep track of which scripts (and their outputs) would need to be re-run every time we make an upstream change.
+In this example, if we change something (like the known mean), and re-run the code, the resulting data set and figure will run. But what if we rely on `perc_difference_df` for something later in our analysis? Or what if we decide to set up the figure code chunk in its own R script? Then we'd really have a problem if we changed the known mean. We would have to keep track of which scripts (and their outputs) would need to be re-run every time we make an upstream change.
 
 # Converting to `targets`
 
 To convert our above script into a `targets` workflow, we need to do a few things. 
 
-1. Convert our existing script into bite size functions
-2. Call to these functions in a single, `_targets.R` executable file
+1. Convert our existing script into bite-sized functions
+2. Call to these functions in a single `_targets.R` executable file
 
 Step #1, in particular, really forces us to think about which data are necessary to run (and reproduce) our analyses. If we don't need them for our analyses, maybe it's not worth keeping in our repo. 
 
-Once we're done, our new schema will look different. Below is the schema I like to use, because it makes the most sense to me, when converting a project into the `targets` workflow
+Once we're done, our new schema will look different. Below is the schema I like to use, because it makes the most sense to me when converting a project into the `targets` workflow. Other researchers might choose to have all `targets` functions in the same script or choose other organizational structures.
 
 + `_targets.R`
 + `scripts`
   + `target-functions`: this houses all the functions I will need for `_targets.R`; I like to have each function as it's own R script
-    - `get_random_sample.R`
-    - `collate_df.R`
-    - `calculate_perc_diff.R`
-    - `create_histogram.R`
+    - `get_random_samples.R`
+    - `combine_known_and_sampled.R`
+    - `calculate_percent_difference.R`
+    - `create_comparison_figure.R`
   + `deprecated`: this houses all the previous scripts that I've converted to functions (can be deleted)
   + `exploratory-analyses`: this houses all scripts that I've used to check the data that I think can be important later, but aren't currently used in the workflow
   
-    
+## Convert our existing script into bite-sized functions
 
+This will be the most time-consuming (and maybe tiring) part of our journey, so grab your coffee (or tea) and buckle up! 
+
+Reviewing our original script, it looks like we can split these processes up into 4 functions: 
+
+1. Generate our random samples. 
+2. Create a dataframe with the mean and sd of both the known and sampled distributions. 
+3. Calculate the percent difference in the known mean and sampled means.
+4. Create a comparison figure. 
+
+Let's go ahead and make individual scripts for each of these functions to save in our `scripts/targets-functions/` folder. 
+
+**New function 1: Generate our random samples**
+
+Notice that I've added some optimization code in this function via `purrr::map_df()` because I anticipate that we will want to run this for various sample sizes in the future (maybe even more than the 2 we originally ran). 
+
+```{r}
+# Variables that the function will require include: 
+## n: the sample size to generate; this can be a vector of multiple 
+## values (e.g., c(10, 100)) or just a single value (100)
+## known_mean: the known mean from which to sample
+## known_sd: the known sd from which to sample
+
+create_random_samples <- function(n, known_mean, known_sd) { 
+  
+  # Set the seed first, so that we can have reproducible results
+  set.seed(1234)
+  
+  # We can use purrr like a for loop to iterate through all 
+  # values of n that we provide and automatically creates a 
+  # master dataframe
+  random_vals <- purrr::map_df(.x = n, 
+                            .f = ~{
+                              rnorm(n = .x, mean = known_mean, sd = known_sd) %>% 
+                                as.data.frame() %>% 
+                                rename(values = 1) %>%
+                                mutate(n = .x)
+                              })
+  
+  # Return these values
+  return(random_vals)
+  
+}
+```
+
+**New function 2: Create a dataframe with the mean and sd of both the known and sampled distributions**
+
+```{r}
+# Variables that the function will require include: 
+## samples: a dataframe that is the result of create_random_samples(); 
+## columns should include "n" (number of samples) and "values"  (the 
+## actual sampled values)
+## known_mean: the known mean of the population
+## known_sd: the known sd of the population
+
+combine_known_and_sampled <- function(samples, known_mean, known_sd) { 
+  
+  samples %>%
+    group_by(n) %>% 
+    summarise(sampled_mean = mean(values, na.rm = T), 
+              sampled_sd = sd(values, na.rm = T)) %>% 
+    ungroup() %>% 
+    mutate(known_mean = known_mean, 
+           known_sd = known_sd)
+  
+}
+```
+
+**New function 3: Calculate the percent difference in the known mean and sampled means**
+
+Notice that I've decided to remove `dplyr::select()` for this function, because it's more useful if I keep all of the column names that I'll need for the figure script later. If I want a subset of the data with fewer columns in the future, I can add it on later as part of a new function.
+
+```{r}
+# Variables that the function will require include: 
+## known_and_sampled: the dataframe that is the result of 
+## combine_known_and_sampled(); should have columns for "n" (sample 
+## size), "sampled_mean", "sampled_sd", "known_mean", and "known_sd"
+
+calculate_percent_difference <- function(known_and_sampled) { 
+  
+  known_and_sampled %>% 
+    mutate(perc_difference_mean = (sampled_mean - known_mean)/known_mean*100,
+           perc_difference_sd = (sampled_sd - known_sd)/known_sd*100
+           ) 
+  
+}
+```
+
+**New function 4: Create a comparison figure**
+
+```{r}
+# Variables that the function will require include: 
+## samples: a dataframe that is the result of create_random_samples(); 
+## columns should include "n" (number of samples) and "values"  (the 
+## actual sampled values)
+## percent_differences: a dataframe that is the result of 
+## calculate_percent_difference(); columns should include "n" (sample 
+## size), "sampled_mean", "sampled_sd", "known_mean", "known_sd", and 
+## "perc_difference_mean"
+
+create_comparison_figure <- function(samples, percent_differences) {
+  
+  ggplot() + 
+    geom_histogram(data = samples, 
+                 mapping = aes(x = values, 
+                               y = ..count../sum(..count..)),
+                 fill = "dodgerblue4", alpha = 0.5) + 
+  geom_vline(data = percent_differences, 
+             mapping = aes(xintercept = sampled_mean, 
+                           linetype = "Sample mean")) + 
+  geom_vline(data = percent_differences, 
+             mapping = aes(xintercept = known_mean, 
+                           linetype = "Known mean")) +
+  scale_linetype_manual(values = c("Sample mean" = "solid", 
+                                   "Known mean" = "dashed")) + 
+  facet_wrap(~n, scales = "free_y") + 
+  scale_y_continuous(labels = scales::percent) + 
+  labs(x = "Value", 
+       y = "Percent of points", 
+       linetype = NULL, 
+       title = "Sample means by sample size") + 
+  theme_classic() + 
+  theme(legend.position = "bottom")
+  
+} 
+```
+
+Okay, nice! If we were to source all of those functions, our workflow might look a little more like this: 
+
+```{r}
+#| message: false
+#| warning: false
+
+# Source important functions
+source("scripts/target-functions/calculate_random_samples.R")
+source("scripts/target-functions/combine_known_and_sampled.R")
+source("scripts/target-functions/calculate_percent_difference.R")
+source("scripts/target-functions/create_comparison_figure.R")
+
+# Create variables - a mean and standard deviation that are known
+known_mean <- 17
+known_sd <- 2
+
+# Generate random samples
+random_all <- create_random_samples(n = c(10, 1000), 
+                                    known_mean = known_mean, 
+                                    known_sd = known_sd) 
+
+# Calculate the means and sds of interest
+combined_data_summaries <- combine_known_and_sampled(samples = random_all,
+                                                     known_mean = known_mean,
+                                                     known_sd = known_sd)
+
+# Calculate percent differences
+percent_differences <- calculate_percent_difference(combined_data_summaries)
+
+# Generate figure
+create_comparison_figure(samples = random_all, 
+                         percent_differences = percent_differences)
+```
+
+Note that this is the same result we got previously (that's good!). 
+
+## Call to these functions in a single `_targets.R` executable file
+
+Now that we have all of our functions ready, we can create our `_targets.R` executable file. We can run the following code snip to generate a new `_targets.R` file from their built-in template: 
+
+```{r}
+#| eval: false
+targets::use_targets()
+```
+
+Make sure this new file is saved in your project's highest folder level.
+
+The new file should look something like this: 
+
+```{r}
+#| eval: false
+# Created by use_targets().
+# Follow the comments below to fill in this target script.
+# Then follow the manual to check and run the pipeline:
+#   https://books.ropensci.org/targets/walkthrough.html#inspect-the-pipeline
+
+# Load packages required to define the pipeline:
+library(targets)
+# library(tarchetypes) # Load other packages as needed.
+
+# Set target options:
+tar_option_set(
+  packages = c("tibble") # Packages that your targets need for their tasks.
+  # format = "qs", # Optionally set the default storage format. qs is fast.
+  #
+  # Pipelines that take a long time to run may benefit from
+  # optional distributed computing. To use this capability
+  # in tar_make(), supply a {crew} controller
+  # as discussed at https://books.ropensci.org/targets/crew.html.
+  # Choose a controller that suits your needs. For example, the following
+  # sets a controller that scales up to a maximum of two workers
+  # which run as local R processes. Each worker launches when there is work
+  # to do and exits if 60 seconds pass with no tasks to run.
+  #
+  #   controller = crew::crew_controller_local(workers = 2, seconds_idle = 60)
+  #
+  # Alternatively, if you want workers to run on a high-performance computing
+  # cluster, select a controller from the {crew.cluster} package.
+  # For the cloud, see plugin packages like {crew.aws.batch}.
+  # The following example is a controller for Sun Grid Engine (SGE).
+  # 
+  #   controller = crew.cluster::crew_controller_sge(
+  #     # Number of workers that the pipeline can scale up to:
+  #     workers = 10,
+  #     # It is recommended to set an idle time so workers can shut themselves
+  #     # down if they are not running tasks.
+  #     seconds_idle = 120,
+  #     # Many clusters install R as an environment module, and you can load it
+  #     # with the script_lines argument. To select a specific verison of R,
+  #     # you may need to include a version string, e.g. "module load R/4.3.2".
+  #     # Check with your system administrator if you are unsure.
+  #     script_lines = "module load R"
+  #   )
+  #
+  # Set other options as needed.
+)
+
+# Run the R scripts in the R/ folder with your custom functions:
+tar_source()
+# tar_source("other_functions.R") # Source other scripts as needed.
+
+# Replace the target list below with your own:
+list(
+  tar_target(
+    name = data,
+    command = tibble(x = rnorm(100), y = rnorm(100))
+    # format = "qs" # Efficient storage for general data objects.
+  ),
+  tar_target(
+    name = model,
+    command = coefficients(lm(y ~ x, data = data))
+  )
+)
+```
+
+There are several components to this script.
+
+- A place where you add packages required to run the `targets` workflow (note that this is not somewhere to put every package your code needs; this is just for `targets` to work)
+- A place to set the `targets` options - this is where you can put every package your code needs
+- A place to source your created functions
+- A `targets` list - this is where you can call to your functions for the workflow
+
+Let's adjust this a little to better fit our needs. 
+
+We only need the `targets` package to run our workflow, so we can leave this bit as is right now. 
+
+However, we do want to add in the `tidyverse` package, as we rely on it for our various functions. We can add that here, in this code chunk: 
+
+```{r}
+#| eval: false
+# Set target options:
+tar_option_set(packages = c("tibble", "tidyverse"))
+```
+
+We next need to specify where our specific functions live and source them. We can do that in this code chunk: 
+
+```{r}
+#| eval: false
+# Run the R scripts in the R/ folder with your custom functions:
+lapply(list.files("scripts/target-functions", full.names = TRUE), source)
+```
+
+The above chunk basically lists all the files in our `scripts/target-functions` folder and reads them in using `source()`. 
+
+Next, in the `targets` list, we can start going through our workflow. The way this `targets` list works is by using the `tar_targets()` function. This function asks for a `name` to call the output from the function identified in the `command` argument. The `command` argument can be a single value, a set of values, or it's own function. Once a `tar_targets()` line is run, the variable `name` is remembered throughout the workflow and can be called to in subsequent `tar_targets()` entries.
+
+For example, we can use `tar_target(name = known_mean, command = 17)` to tell `targets` that our `known_mean` variable should equal 17 and `tar_target(name = known_sd, command = 2)` to tell `targets` that our `known_sd` should equal 2. Then, later in the workflow, when we generate our random samples, we can refer to both `known_mean` and `known_sd` in our `create_random_samples()` function. 
+
+Let's edit our complete `targets` list to include our entire workflow:
+
+```{r}
+#| eval: false
+# Replaced the target list below with our own:
+list(
+  
+  # Define known means and desired sample sizes
+  tar_target(name = known_mean, command = 17), 
+  tar_target(name = known_sd, command = 2), 
+  tar_target(name = sample_sizes, command = c(10, 1000)), 
+  
+  # Generate random samples
+  tar_target(name = random_all, 
+             command = create_random_samples(n = sample_sizes,
+                                             known_mean = known_mean,
+                                             known_sd = known_sd)), 
+  
+  # Calculate means and sds of interest
+  tar_target(name = combined_data_summaries, 
+             command = combine_known_and_sampled(samples = random_all,
+                                                 known_mean = known_mean, 
+                                                 known_sd = known_sd)), 
+  
+  # Calculate percent differences
+  tar_target(name = percent_differences, 
+             command = calculate_percent_difference(combined_data_summaries)), 
+  
+  # Generate figure
+  tar_target(name = comparison_figure, 
+             command  = create_comparison_figure(
+               samples = random_all,
+               percent_differences = percent_differences))
+  
+)
+```
+
+Great! Now, let's go ahead and save that. Our new `_targets.R` file should read: 
+
+```{r}
+#| eval: false
+# Created by use_targets().
+# Follow the comments below to fill in this target script.
+# Then follow the manual to check and run the pipeline:
+#   https://books.ropensci.org/targets/walkthrough.html#inspect-the-pipeline
+
+# Load packages required to define the pipeline:
+library(targets)
+
+# Set target options:
+tar_option_set(packages = c("tibble", "tidyverse"))
+
+# Run the R scripts in the R/ folder with your custom functions:
+lapply(list.files("scripts/target-functions", full.names = TRUE), source)
+
+# Replaced the target list below with our own:
+list(
+  
+  # Define known means and desired sample sizes
+  tar_target(name = known_mean, command = 17), 
+  tar_target(name = known_sd, command = 2), 
+  tar_target(name = sample_sizes, command = c(10, 1000)), 
+  
+  # Generate random samples
+  tar_target(name = random_all, 
+             command = create_random_samples(n = sample_sizes,
+                                             known_mean = known_mean,
+                                             known_sd = known_sd)), 
+  
+  # Calculate means and sds of interest
+  tar_target(name = combined_data_summaries, 
+             command = combine_known_and_sampled(samples = random_all,
+                                                 known_mean = known_mean, 
+                                                 known_sd = known_sd)), 
+  
+  # Calculate percent differences
+  tar_target(name = percent_differences, 
+             command = calculate_percent_difference(combined_data_summaries)), 
+  
+  # Generate figure
+  tar_target(name = comparison_figure, 
+             command = create_comparison_figure(
+               samples = random_all,
+               percent_differences = percent_differences))
+  
+)
+```
+
+# Testing our `targets` workflow
+
+Now that we have our code siphoned off into bite-sized functions and have created and edited our `_targets.R` file, we can test our code! 
+
+To test, we can run:
+
+```{r}
+#| eval: false
+targets::tar_make()
+```
+
+Notice that there is a bunch of red text explaining the steps that `targets` is going through to complete our workflow. The color red is scary, but this output is actually telling us that `targets` is hard at work running our code.
+
+<span style="color:red">
+▶ dispatched target sample_sizes</br>
+● completed target sample_sizes [0.292 seconds, 56 bytes]</br>
+▶ dispatched target known_sd</br>
+● completed target known_sd [0 seconds, 50 bytes]</br>
+▶ dispatched target known_mean</br>
+● completed target known_mean [0 seconds, 51 bytes]</br>
+▶ dispatched target random_all</br>
+● completed target random_all [0.009 seconds, 7.756 kilobytes]</br>
+▶ dispatched target combined_data_summaries</br>
+● completed target combined_data_summaries [0.004 seconds, 229 bytes]</br>
+▶ dispatched target percent_differences</br>
+● completed target percent_differences [0.001 seconds, 292 bytes]</br>
+▶ dispatched target comparison_figure</br>
+● completed target comparison_figure [0.03 seconds, 214.703 kilobytes]</br>
+▶ ended pipeline [0.454 seconds]</br>
+</span>
+
+If you run `targets::tar_make()` multiple times in a row without changing anything in your `_targets.R` file, you will see a different output that skips things that are already up to date. 
+
+I know this might feel a bit "black box"-y at the minute, because you can't actually see what targets has done. You should notice that you now have a `_targets` folder in your project's directory. Navigating to `_targets/objects` should show you all of the variables that you created in your `_targets.R` file. If you want to read them into R for yourself, you can type either of the following bits of code in your R console: 
+
+```{r}
+#| eval: false
+# To load individual variables
+targets::tar_load(c("known_mean")) 
+
+# To load everything
+targets::tar_load_everything()
+```
+
+Now you should be able to play around with the variables in your R environment, as if you assigned them using `<-` in a normal R script. 
+
+# The coolest thing about `targets`? 
+
+Finally, we can get to the absolute coolest property of `targets` - updating and re-running our workflow. 
+
+Go ahead and navigate to your `_targets.R` file and change your `sample_sizes` to `c(10, 1000, 10000)`. Then, in your R console run: 
+
+```{r}
+#| eval: false
+# Execute tar_make()
+targets::tar_make()
+
+# Grab our comparison figure
+targets::tar_load(c("comparison_figure"))
+
+# Check out the new results 
+comparison_figure
+```
+
+
+```{r}
+#| include: false
+# Execute tar_make()
+targets::tar_make()
+
+# Grab our comparison figure
+targets::tar_load(c("comparison_figure"))
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# Check out the new results 
+comparison_figure
+```
+
+`targets` knew that we updated something early in our workflow that was required for functions later down the line. It went ahead and re-ran everything that needed to be updated in order to update our figure of interest. We didn't have to go through each part of our script to determine what should be re-run and what should be left as is! Thanks `targets`! 
