@@ -12,11 +12,11 @@ format:
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 ```
 
-This workshop will provide you with an introduction to develop and convert existing R repositories to the `targets` workflow. 
+This workshop will provide you with an introduction to develop and convert existing R repositories to the `targets` workflow.
 
 # Prerequisites
 
-We will be using the `targets` package. There is a great [user manual](https://books.ropensci.org/targets/) for this package that you can continue to refer to on your `targets` journey. 
+We will be using the `targets` package. There is a great [user manual](https://books.ropensci.org/targets/) for this package that you can continue to refer to on your `targets` journey.
 
 ```{r}
 #| eval: false
@@ -30,31 +30,30 @@ For my own sanity, we will also be using `tidyverse`.
 install.packages("tidyverse")
 ```
 
-
 # Why use `targets`?
 
-Many projects are organized in a set of R scripts or R markdowns that complete one or several tasks that eventually get you to your end product. However, these scripts can often be revised and updated based on feedback from advisers, peer-reviewers, or bug fixes. Git already helps us out by tracking which version of the scripts are most up to date, but it doesn't automatically re-run and update the outputs of scripts further down in our workflow. 
+Many projects are organized in a set of R scripts or R markdowns that complete one or several tasks that eventually get you to your end product. However, these scripts can often be revised and updated based on feedback from advisers, peer-reviewers, or bug fixes. Git already helps us out by tracking which version of the scripts are most up to date, but it doesn't automatically re-run and update the outputs of scripts further down in our workflow.
 
 This could result in out-dated figures and model outputs which can become a true nightmare for any researcher.
 
-Some people choose to manage this nightmare via `makefiles`, which tell R which files are dependencies for others. However, there is a more streamlined (and some may argue, more intuitive) way to make sure that all scripts are re-run if a precursor is edited. That brings us to `targets`. 
+Some people choose to manage this nightmare via `makefiles`, which tell R which files are dependencies for others. However, there is a more streamlined (and some may argue, more intuitive) way to make sure that all scripts are re-run if a precursor is edited. That brings us to `targets`.
 
-`targets` can become pretty overwhelming, as it *does* likely require a complete overhaul of your current repo organization. That being said, I'm going to go step-by-step and show you how I've successfully converted a repo to `targets` in the past. 
+`targets` can become pretty overwhelming, as it *does* likely require a complete overhaul of your current repo organization. That being said, I'm going to go step-by-step and show you how I've successfully converted a repo to `targets` in the past.
 
 # Reviewing your old scripts
 
-Your repo probably has a folder schema like this: 
+Your repo probably has a folder schema like this:
 
-+ `scripts`
-    - `01-data_setup.R`
-    - `02-run_model.R`
-    - ...
-+ `outputs`
-    - ... 
-+ `data`
-    - ... 
-  
-And your previous scripts might look something like this: 
+-   `scripts`
+    -   `01-data_setup.R`
+    -   `02-run_model.R`
+    -   ...
+-   `outputs`
+    -   ...
+-   `data`
+    -   ...
+
+And your previous scripts might look something like this:
 
 ```{r}
 #| message: false
@@ -127,47 +126,47 @@ ggplot() +
   theme(legend.position = "bottom")
 ```
 
-Phew that's a lot! 
+Phew that's a lot!
 
 In this example, if we change something (like the known mean), and re-run the code, the resulting data set and figure will run. But what if we rely on `perc_difference_df` for something later in our analysis? Or what if we decide to set up the figure code chunk in its own R script? Then we'd really have a problem if we changed the known mean. We would have to keep track of which scripts (and their outputs) would need to be re-run every time we make an upstream change.
 
 # Converting to `targets`
 
-To convert our above script into a `targets` workflow, we need to do a few things. 
+To convert our above script into a `targets` workflow, we need to do a few things.
 
-1. Convert our existing script into bite-sized functions
-2. Call to these functions in a single `_targets.R` executable file
+1.  Convert our existing script into bite-sized functions
+2.  Call to these functions in a single `_targets.R` executable file
 
-Step #1, in particular, really forces us to think about which data are necessary to run (and reproduce) our analyses. If we don't need them for our analyses, maybe it's not worth keeping in our repo. 
+Step #1, in particular, really forces us to think about which data are necessary to run (and reproduce) our analyses. If we don't need them for our analyses, maybe it's not worth keeping in our repo.
 
 Once we're done, our new schema will look different. Below is the schema I like to use, because it makes the most sense to me when converting a project into the `targets` workflow. Other researchers might choose to have all `targets` functions in the same script or choose other organizational structures.
 
-+ `_targets.R`
-+ `scripts`
-  + `target-functions`: this houses all the functions I will need for `_targets.R`; I like to have each function as it's own R script
-    - `get_random_samples.R`
-    - `combine_known_and_sampled.R`
-    - `calculate_percent_difference.R`
-    - `create_comparison_figure.R`
-  + `deprecated`: this houses all the previous scripts that I've converted to functions (can be deleted)
-  + `exploratory-analyses`: this houses all scripts that I've used to check the data that I think can be important later, but aren't currently used in the workflow
-  
+-   `_targets.R`
+-   `scripts`
+    -   `target-functions`: this houses all the functions I will need for `_targets.R`; I like to have each function as it's own R script
+        -   `get_random_samples.R`
+        -   `combine_known_and_sampled.R`
+        -   `calculate_percent_difference.R`
+        -   `create_comparison_figure.R`
+    -   `deprecated`: this houses all the previous scripts that I've converted to functions (can be deleted)
+    -   `exploratory-analyses`: this houses all scripts that I've used to check the data that I think can be important later, but aren't currently used in the workflow
+
 ## Convert our existing script into bite-sized functions
 
-This will be the most time-consuming (and maybe tiring) part of our journey, so grab your coffee (or tea) and buckle up! 
+This will be the most time-consuming (and maybe tiring) part of our journey, so grab your coffee (or tea) and buckle up!
 
-Reviewing our original script, it looks like we can split these processes up into 4 functions: 
+Reviewing our original script, it looks like we can split these processes up into 4 functions:
 
-1. Generate our random samples. 
-2. Create a dataframe with the mean and sd of both the known and sampled distributions. 
-3. Calculate the percent difference in the known mean and sampled means.
-4. Create a comparison figure. 
+1.  Generate our random samples.
+2.  Create a dataframe with the mean and sd of both the known and sampled distributions.
+3.  Calculate the percent difference in the known mean and sampled means.
+4.  Create a comparison figure.
 
-Let's go ahead and make individual scripts for each of these functions to save in our `scripts/targets-functions/` folder. 
+Let's go ahead and make individual scripts for each of these functions to save in our `scripts/targets-functions/` folder.
 
 **New function 1: Generate our random samples**
 
-Notice that I've added some optimization code in this function via `purrr::map_df()` because I anticipate that we will want to run this for various sample sizes in the future (maybe even more than the 2 we originally ran). 
+Notice that I've added some optimization code in this function via `purrr::map_df()` because I anticipate that we will want to run this for various sample sizes in the future (maybe even more than the 2 we originally ran).
 
 ```{r}
 # Variables that the function will require include: 
@@ -280,7 +279,7 @@ create_comparison_figure <- function(samples, percent_differences) {
 } 
 ```
 
-Okay, nice! If we were to source all of those functions, our workflow might look a little more like this: 
+Okay, nice! If we were to source all of those functions, our workflow might look a little more like this:
 
 ```{r}
 #| message: false
@@ -314,11 +313,11 @@ create_comparison_figure(samples = random_all,
                          percent_differences = percent_differences)
 ```
 
-Note that this is the same result we got previously (that's good!). 
+Note that this is the same result we got previously (that's good!).
 
 ## Call to these functions in a single `_targets.R` executable file
 
-Now that we have all of our functions ready, we can create our `_targets.R` executable file. We can run the following code snip to generate a new `_targets.R` file from their built-in template: 
+Now that we have all of our functions ready, we can create our `_targets.R` executable file. We can run the following code snip to generate a new `_targets.R` file from their built-in template:
 
 ```{r}
 #| eval: false
@@ -327,7 +326,7 @@ targets::use_targets()
 
 Make sure this new file is saved in your project's highest folder level.
 
-The new file should look something like this: 
+The new file should look something like this:
 
 ```{r}
 #| eval: false
@@ -397,16 +396,16 @@ list(
 
 There are several components to this script.
 
-- A place where you add packages required to run the `targets` workflow (note that this is not somewhere to put every package your code needs; this is just for `targets` to work)
-- A place to set the `targets` options - this is where you can put every package your code needs
-- A place to source your created functions
-- A `targets` list - this is where you can call to your functions for the workflow
+-   A place where you add packages required to run the `targets` workflow (note that this is not somewhere to put every package your code needs; this is just for `targets` to work)
+-   A place to set the `targets` options - this is where you can put every package your code needs
+-   A place to source your created functions
+-   A `targets` list - this is where you can call to your functions for the workflow
 
-Let's adjust this a little to better fit our needs. 
+Let's adjust this a little to better fit our needs.
 
-We only need the `targets` package to run our workflow, so we can leave this bit as is right now. 
+We only need the `targets` package to run our workflow, so we can leave this bit as is right now.
 
-However, we do want to add in the `tidyverse` package, as we rely on it for our various functions. We can add that here, in this code chunk: 
+However, we do want to add in the `tidyverse` package, as we rely on it for our various functions. We can add that here, in this code chunk:
 
 ```{r}
 #| eval: false
@@ -414,19 +413,19 @@ However, we do want to add in the `tidyverse` package, as we rely on it for our 
 tar_option_set(packages = c("tibble", "tidyverse"))
 ```
 
-We next need to specify where our specific functions live and source them. We can do that in this code chunk: 
+We next need to specify where our specific functions live and source them. We can do that in this code chunk:
 
 ```{r}
 #| eval: false
 # Run the R scripts in the R/ folder with your custom functions:
-lapply(list.files("scripts/target-functions", full.names = TRUE), source)
+tar_source("scripts/target-functions")
 ```
 
-The above chunk basically lists all the files in our `scripts/target-functions` folder and reads them in using `source()`. 
+The above chunk basically lists all the files in our `scripts/target-functions` folder and reads them in using `source()`.
 
-Next, in the `targets` list, we can start going through our workflow. The way this `targets` list works is by using the `tar_targets()` function. This function asks for a `name` to call the output from the function identified in the `command` argument. The `command` argument can be a single value, a set of values, or it's own function. Once a `tar_targets()` line is run, the variable `name` is remembered throughout the workflow and can be called to in subsequent `tar_targets()` entries.
+Next, in the `targets` list, we can start going through our workflow. The way this `targets` list works is by using the `tar_targets()` function. This function asks for a `name` to call the output from the function identified in the `command` argument. The `command` argument can be a single value, a set of values, or its own function. Once a `tar_targets()` line is run, the variable `name` is remembered throughout the workflow and can be called to in subsequent `tar_targets()` entries.
 
-For example, we can use `tar_target(name = known_mean, command = 17)` to tell `targets` that our `known_mean` variable should equal 17 and `tar_target(name = known_sd, command = 2)` to tell `targets` that our `known_sd` should equal 2. Then, later in the workflow, when we generate our random samples, we can refer to both `known_mean` and `known_sd` in our `create_random_samples()` function. 
+For example, we can use `tar_target(name = known_mean, command = 17)` to tell `targets` that our `known_mean` variable should equal 17 and `tar_target(name = known_sd, command = 2)` to tell `targets` that our `known_sd` should equal 2. Then, later in the workflow, when we generate our random samples, we can refer to both `known_mean` and `known_sd` in our `create_random_samples()` function.
 
 Let's edit our complete `targets` list to include our entire workflow:
 
@@ -465,7 +464,7 @@ list(
 )
 ```
 
-Great! Now, let's go ahead and save that. Our new `_targets.R` file should read: 
+Great! Now, let's go ahead and save that. Our new `_targets.R` file should read:
 
 ```{r}
 #| eval: false
@@ -481,7 +480,7 @@ library(targets)
 tar_option_set(packages = c("tibble", "tidyverse"))
 
 # Run the R scripts in the R/ folder with your custom functions:
-lapply(list.files("scripts/target-functions", full.names = TRUE), source)
+tar_source("scripts/target-functions")
 
 # Replaced the target list below with our own:
 list(
@@ -518,7 +517,7 @@ list(
 
 # Testing our `targets` workflow
 
-Now that we have our code siphoned off into bite-sized functions and have created and edited our `_targets.R` file, we can test our code! 
+Now that we have our code siphoned off into bite-sized functions and have created and edited our `_targets.R` file, we can test our code!
 
 To test, we can run:
 
@@ -529,44 +528,49 @@ targets::tar_make()
 
 Notice that there is a bunch of red text explaining the steps that `targets` is going through to complete our workflow. The color red is scary, but this output is actually telling us that `targets` is hard at work running our code.
 
-<span style="color:red">
-▶ dispatched target sample_sizes</br>
-● completed target sample_sizes [0.292 seconds, 56 bytes]</br>
-▶ dispatched target known_sd</br>
-● completed target known_sd [0 seconds, 50 bytes]</br>
-▶ dispatched target known_mean</br>
-● completed target known_mean [0 seconds, 51 bytes]</br>
-▶ dispatched target random_all</br>
-● completed target random_all [0.009 seconds, 7.756 kilobytes]</br>
-▶ dispatched target combined_data_summaries</br>
-● completed target combined_data_summaries [0.004 seconds, 229 bytes]</br>
-▶ dispatched target percent_differences</br>
-● completed target percent_differences [0.001 seconds, 292 bytes]</br>
-▶ dispatched target comparison_figure</br>
-● completed target comparison_figure [0.03 seconds, 214.703 kilobytes]</br>
-▶ ended pipeline [0.454 seconds]</br>
-</span>
+[▶ dispatched target sample_sizes</br> ● completed target sample_sizes \[0.292 seconds, 56 bytes\]</br> ▶ dispatched target known_sd</br> ● completed target known_sd \[0 seconds, 50 bytes\]</br> ▶ dispatched target known_mean</br> ● completed target known_mean \[0 seconds, 51 bytes\]</br> ▶ dispatched target random_all</br> ● completed target random_all \[0.009 seconds, 7.756 kilobytes\]</br> ▶ dispatched target combined_data_summaries</br> ● completed target combined_data_summaries \[0.004 seconds, 229 bytes\]</br> ▶ dispatched target percent_differences</br> ● completed target percent_differences \[0.001 seconds, 292 bytes\]</br> ▶ dispatched target comparison_figure</br> ● completed target comparison_figure \[0.03 seconds, 214.703 kilobytes\]</br> ▶ ended pipeline \[0.454 seconds\]</br>]{style="color:red"}
 
-If you run `targets::tar_make()` multiple times in a row without changing anything in your `_targets.R` file, you will see a different output that skips things that are already up to date. 
+If you run `targets::tar_make()` multiple times in a row without changing anything in your `_targets.R` file, you will see a different output that skips things that are already up to date.
 
-I know this might feel a bit "black box"-y at the minute, because you can't actually see what targets has done. You should notice that you now have a `_targets` folder in your project's directory. Navigating to `_targets/objects` should show you all of the variables that you created in your `_targets.R` file. If you want to read them into R for yourself, you can type either of the following bits of code in your R console: 
+I know this might feel a bit "black box"-y at the minute, because you can't actually see what targets has done. You should notice that you now have a `_targets` folder in your project's directory. Navigating to `_targets/objects` should show you all of the variables that you created in your `_targets.R` file. If you want to read them into R for yourself, you can type either of the following bits of code in your R console:
 
 ```{r}
 #| eval: false
-# To load individual variables
-targets::tar_load(c("known_mean")) 
+# To load individual variables into your environment
+targets::tar_load("known_mean")
 
-# To load everything
+# To load everything into your environment
 targets::tar_load_everything()
 ```
 
-Now you should be able to play around with the variables in your R environment, as if you assigned them using `<-` in a normal R script. 
+Now you should be able to play around with the variables in your R environment, as if you assigned them using `<-` in a normal R script.
 
-# The coolest thing about `targets`? 
+There's also a way that you can look at the values stored within a `targets` object without actually loading them into your R environment. You can do that using:
 
-Finally, we can get to the absolute coolest property of `targets` - updating and re-running our workflow. 
+```{r}
+#| eval: false
+# To just read something in and display it (but not load it into your environment)
+targets::tar_read("known_mean")
 
-Go ahead and navigate to your `_targets.R` file and change your `sample_sizes` to `c(10, 1000, 10000)`. Then, in your R console run: 
+# This might come in handy if you want to manipulate the value and save it to a
+# new variable
+new_mean <- targets::tar_read("known_mean")*100
+```
+
+**Fun note**: By default, `targets` will store your objects within your repository's `_targets/` folder. If you're working collaboratively on a project and using something like Google Drive to store your datasets, it might be nice to update this save location to a shared drive. If you have Google Drive synced to your local device, you can simply add this line to your `_targets.R` before you call to `tar_option_set()`:
+
+```{r}
+#| eval: false
+# Set targets store to appropriate shared directory
+project_data_path <- "local file path to your shared google drive folder"
+tar_config_set(store = file.path(project_data_path, "_targets"))
+```
+
+# The coolest thing about `targets`?
+
+Finally, we can get to the absolute coolest property of `targets` - updating and re-running our workflow.
+
+Go ahead and navigate to your `_targets.R` file and change your `sample_sizes` to `c(10, 1000, 10000)`. Then, in your R console run:
 
 ```{r}
 #| eval: false
@@ -579,7 +583,6 @@ targets::tar_load(c("comparison_figure"))
 # Check out the new results 
 comparison_figure
 ```
-
 
 ```{r}
 #| include: false
@@ -598,4 +601,30 @@ targets::tar_load(c("comparison_figure"))
 comparison_figure
 ```
 
-`targets` knew that we updated something early in our workflow that was required for functions later down the line. It went ahead and re-ran everything that needed to be updated in order to update our figure of interest. We didn't have to go through each part of our script to determine what should be re-run and what should be left as is! Thanks `targets`! 
+`targets` knew that we updated something early in our workflow that was required for functions later down the line. It went ahead and re-ran everything that needed to be updated in order to update our figure of interest. We didn't have to go through each part of our script to determine what should be re-run and what should be left as is! Thanks `targets`!
+
+# Nifty tools to inspect your `targets` workflow
+
+You could always run `targets::tar_make()` if you're not sure that your `targets` objects are up to date, but you don't always have to. `targets` has some nifty tools that let you inspect your workflow without prompting a workflow run.
+
+For example, if your workflow is relatively small, you can ask `targets` to show a network flow chart. Beware that this schematic can get pretty unwieldy if your workflow has many steps and components.
+
+```{r}
+# Visualize your targets network flow chart to see if anything is out of date
+# Note that this requires the visNetwork R package
+targets::tar_visnetwork()
+```
+
+An alternative is to look at the manifest, which shows which command is stored within each `target` object. This doesn't exactly tell us what is up-to-date, but it might help us notice things that we know should be different.
+
+```{r}
+# Look at the commands stored in each object
+targets::tar_manifest()
+```
+
+If you're really interested in *aalllll* the details, you can look at the metadata for each object. This will tell you things like: when the variable was last updated, how it's stored, how long it took to run, etc.
+
+```{r}
+# Look at the full metadata of each object
+targets::tar_meta()
+```

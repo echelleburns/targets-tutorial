@@ -12,7 +12,7 @@ tar_option_set(
 )
 
 # Run the R scripts in the R/ folder with your custom functions:
-lapply(list.files("scripts/target-functions", full.names = TRUE), source)
+tar_source("scripts/target-functions")
 
 # Replaced the target list below with our own:
 list(
