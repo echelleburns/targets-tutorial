@@ -11,13 +11,14 @@ create_random_samples <- function(n, known_mean, known_sd) {
   # We can use purrr like a for loop to iterate through all 
   # values of n that we provide and automatically creates a 
   # master dataframe
-  random_vals <- purrr::map_df(.x = n, 
+  random_vals <- purrr::map(.x = n, 
                                .f = ~{
                                  rnorm(n = .x, mean = known_mean, sd = known_sd) %>% 
                                    as.data.frame() %>% 
                                    rename(values = 1) %>%
                                    mutate(n = .x)
-                               })
+                               }) %>% 
+    list_rbind()
   
   # Return these values
   return(random_vals)

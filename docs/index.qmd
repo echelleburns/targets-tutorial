@@ -166,7 +166,7 @@ Let's go ahead and make individual scripts for each of these functions to save i
 
 **New function 1: Generate our random samples**
 
-Notice that I've added some optimization code in this function via `purrr::map_df()` because I anticipate that we will want to run this for various sample sizes in the future (maybe even more than the 2 we originally ran).
+Notice that I've added some optimization code in this function via `purrr::map()` because I anticipate that we will want to run this for various sample sizes in the future (maybe even more than the 2 we originally ran).
 
 ```{r}
 # Variables that the function will require include: 
@@ -183,13 +183,14 @@ create_random_samples <- function(n, known_mean, known_sd) {
   # We can use purrr like a for loop to iterate through all 
   # values of n that we provide and automatically creates a 
   # master dataframe
-  random_vals <- purrr::map_df(.x = n, 
+  random_vals <- purrr::map(.x = n, 
                             .f = ~{
                               rnorm(n = .x, mean = known_mean, sd = known_sd) %>% 
                                 as.data.frame() %>% 
                                 rename(values = 1) %>%
                                 mutate(n = .x)
-                              })
+                              }) %>% 
+    list_rbind()
   
   # Return these values
   return(random_vals)
